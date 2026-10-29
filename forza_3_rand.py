@@ -69,10 +69,10 @@ def check_winner_or_draw(board):
 print("Let's play Tic Tac Toe. You are X, the computer is O.")   # CHANGED
 
 board = [[" "] * 3 for _ in range(3)]   # list of lists
-player = 1                              # player 1 (you) starts
+player = 1                              # player 1 (human) starts
 
 for i in range(9):
-    if player == 1:                      # CHANGED
+    if player == 1:                      
         print("Your turn.")
     else:
         print("Computer's turn.")
@@ -90,7 +90,7 @@ for i in range(9):
 
     if result == "win":
         print_board(board)
-        if player == 1:                  # CHANGED
+        if player == 1:                 
             print("You win!")
         else:
             print("The computer wins!")
