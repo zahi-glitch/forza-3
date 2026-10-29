@@ -1,5 +1,5 @@
-# forza-3
-Play Tic-Tac-Toe
+# Two players
+python3 forza_3.py
 
-forza_3.py      : 2 players
-forza_3_rand.py : 1 player against rand
+# One player against the computer (random moves)
+python3 forza_3_rand.py
