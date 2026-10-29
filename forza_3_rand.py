@@ -66,7 +66,7 @@ def check_winner_or_draw(board):
 
 # Main
 
-print("Let's play Tic Tac Toe. You are X, the computer is O.")   # CHANGED
+print("Let's play Tic Tac Toe. You are X, the computer is O.")  
 
 board = [[" "] * 3 for _ in range(3)]   # list of lists
 player = 1                              # player 1 (human) starts
