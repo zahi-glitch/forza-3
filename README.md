@@ -11,7 +11,7 @@ Each step builds on the previous one. Run them in order.
 | 4 | `tic_tac_toe_minimax_viz.py` | The computer now plays **minimax** (never loses). Matplotlib window shows the search on the game graph |
 | 5 | `website/index.html` | The same idea in the browser: no install, click to play |
 
-When I realized that minimax was a good strategy (it never loses), I worked with Claude (Anthropic) to build the website (step 5).
+When I realized that minimax was a good strategy (it never loses), I worked with Claude (Anthropic) on steps 4 and step 5.
 
 ```bash
 python3 forza_3.py                    # 1. two players
