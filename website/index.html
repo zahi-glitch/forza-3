@@ -1,0 +1,805 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Minimax Game Graph</title>
+<meta name="description" content="Play tic-tac-toe against minimax and watch the search light up the game graph.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: black single-look page. Left column = title, board, controls, last-search stats. Right column = the game graph (canvas) with legend and inspector, then the explanations. Stacks on phones. */
+:root {
+  color-scheme: dark;
+  --bg: #000000;
+  --surface: #07090D;
+  --raised: #0E1319;
+  --fg: #E9EEF5;
+  --muted: #8592A1;
+  --line: #1B222B;
+  --x: #4D8DFF;
+  --o: #FF4D6A;
+  --draw: #8D97A6;
+  --go: #3DDC84;
+  --faint: rgba(255, 255, 255, 0.16);
+  --font-display: 'Big Shoulders Display', 'Arial Narrow', Impact, sans-serif;
+  --font-body: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.5;
+  padding-block: 28px 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+h1, h2, p, dl, dd, ul { margin: 0; }
+ul { padding: 0; list-style: none; }
+
+/* Phones: one column, sections reordered so the board and the graph sit together. */
+.app { max-width: 1320px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
+.left, .right { display: contents; }
+.head { order: 1; }
+.play { order: 2; }
+.graphbox { order: 3; }
+.controls-sec { order: 4; }
+.stats { order: 5; }
+.explain { order: 6; }
+@media (min-width: 960px) {
+  .app { display: grid; grid-template-columns: minmax(320px, 380px) minmax(0, 1fr); gap: 36px; align-items: start; }
+  .left, .right { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+}
+
+.head { display: flex; flex-direction: column; gap: 10px; }
+h1 {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(54px, 15vw, 84px);
+  line-height: 0.88;
+  letter-spacing: 0.015em;
+  text-transform: uppercase;
+  text-wrap: balance;
+}
+.lede { color: var(--muted); max-width: 44ch; }
+
+.label { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+
+/* board */
+.status { font-size: 20px; font-weight: 600; min-height: 1.5em; margin-bottom: 4px; text-wrap: balance; }
+.note { font-family: var(--font-mono); font-size: 13px; color: var(--muted); min-height: 1.5em; margin-bottom: 12px; }
+.board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; background: var(--line); border-radius: 8px; overflow: hidden; }
+.cell {
+  appearance: none; border: 0; margin: 0; padding: 0; border-radius: 0;
+  aspect-ratio: 1; min-width: 0;
+  background: var(--surface); color: var(--fg);
+  display: grid; place-items: center; position: relative;
+  font: inherit; cursor: default;
+}
+.cell .n { position: absolute; top: 8px; left: 10px; font-family: var(--font-mono); font-size: 12px; color: var(--muted); opacity: 0.8; }
+.cell .hint { position: absolute; bottom: 8px; left: 0; right: 0; text-align: center; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+.hint.win { color: var(--go); }
+.hint.draw { color: var(--draw); }
+.hint.lose { color: var(--o); }
+.mark { font-family: var(--font-display); font-weight: 800; font-size: clamp(76px, 24vw, 124px); line-height: 1; animation: pop 160ms ease-out; }
+.mark.X { color: var(--x); text-shadow: 0 0 22px rgba(77, 141, 255, 0.55); }
+.mark.O { color: var(--o); text-shadow: 0 0 22px rgba(255, 77, 106, 0.5); }
+@keyframes pop { from { transform: scale(0.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.cell.win { background: rgba(61, 220, 132, 0.12); box-shadow: inset 0 0 0 1px var(--go); }
+.board.live .cell.free { cursor: pointer; }
+.board.live .cell.free:hover { background: var(--raised); }
+.board.live .cell.free::after {
+  content: attr(data-ghost);
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-family: var(--font-display); font-weight: 800; font-size: clamp(76px, 24vw, 124px);
+  opacity: 0; pointer-events: none;
+}
+.board.live[data-ghost-class="X"] .cell.free::after { color: var(--x); }
+.board.live[data-ghost-class="O"] .cell.free::after { color: var(--o); }
+.board.live .cell.free:hover::after { opacity: 0.3; }
+
+/* controls */
+.controls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.btn, .toggle {
+  appearance: none; font: inherit; font-size: 14px; font-weight: 600; color: var(--fg);
+  background: var(--surface); border: 1px solid var(--line); border-radius: 6px;
+  padding: 10px 14px; min-height: 44px; cursor: pointer; touch-action: manipulation;
+}
+.btn:hover:not(:disabled), .toggle:hover:not(:disabled) { background: var(--raised); border-color: var(--muted); }
+.btn:disabled, .toggle:disabled { opacity: 0.45; cursor: default; }
+.toggle { display: inline-flex; align-items: center; gap: 10px; width: 100%; grid-column: 1 / -1; }
+.toggle .sw { width: 30px; height: 16px; border-radius: 8px; background: var(--line); position: relative; flex: none; }
+.toggle .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--muted); transition: transform 120ms; }
+.toggle[aria-pressed="true"] .sw { background: rgba(61, 220, 132, 0.35); }
+.toggle[aria-pressed="true"] .sw::after { background: var(--go); transform: translateX(14px); }
+:is(.btn, .toggle, .cell):focus-visible { outline: 3px solid var(--x); outline-offset: 2px; }
+.controls-note { font-size: 13px; color: var(--muted); grid-column: 1 / -1; }
+
+/* panels */
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
+.stats dl { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 16px; }
+.stats dt { color: var(--muted); font-size: 14px; }
+.stats dd { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 14px; text-align: right; }
+.stats .empty { color: var(--muted); font-size: 14px; }
+.stats .verdict { grid-column: 1 / -1; text-align: left; font-family: var(--font-body); font-size: 15px; font-weight: 600; padding-top: 6px; border-top: 1px solid var(--line); }
+.stats .verdict.win { color: var(--go); }
+.stats .verdict.draw { color: var(--draw); }
+.stats .verdict.lose { color: var(--o); }
+
+/* graph */
+.graphbox { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.ghead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.l2 { display: block; }
+h2 { font-family: var(--font-display); font-weight: 800; font-size: 30px; line-height: 1; letter-spacing: 0.03em; text-transform: uppercase; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 13px; color: var(--muted); }
+.legend li { display: inline-flex; align-items: center; gap: 7px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.legend i.bar { width: 18px; height: 4px; border-radius: 2px; }
+.inspect { display: flex; gap: 14px; align-items: center; min-height: 74px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.mini { display: grid; grid-template-columns: repeat(3, 22px); gap: 2px; background: var(--line); flex: none; }
+.mini span { width: 22px; height: 22px; display: grid; place-items: center; background: var(--bg); font-family: var(--font-mono); font-size: 13px; font-weight: 500; }
+.mini span.X { color: var(--x); }
+.mini span.O { color: var(--o); }
+.inspect-text { display: flex; flex-direction: column; gap: 2px; font-size: 14px; min-width: 0; }
+.inspect-text .muted { color: var(--muted); }
+.gscroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+#graph { display: block; width: 100%; height: 600px; touch-action: pan-x pan-y; }
+.zoom { display: inline-flex; align-items: center; gap: 6px; }
+.zbtn {
+  appearance: none; font: inherit; font-family: var(--font-mono); font-size: 13px; color: var(--fg);
+  background: var(--surface); border: 1px solid var(--line); border-radius: 6px;
+  min-width: 44px; min-height: 36px; padding: 0 10px; cursor: pointer; touch-action: manipulation;
+}
+.zbtn[aria-pressed="true"] { background: var(--raised); border-color: var(--muted); }
+.zbtn:focus-visible { outline: 3px solid var(--x); outline-offset: 2px; }
+
+/* explanations */
+.explain { display: flex; flex-direction: column; gap: 16px; }
+.explain dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.explain .item { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); min-width: 0; }
+.explain dt { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.explain dt i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.explain dt i.bar { width: 18px; height: 4px; border-radius: 2px; }
+.explain dd { color: var(--muted); font-size: 15px; }
+
+@media (max-width: 600px) {
+  body { padding-block: 16px 36px; }
+  .app { gap: 16px; }
+  h1 { font-size: clamp(34px, 10.5vw, 48px); line-height: 1; }
+  .l2 { display: inline; }
+  .lede { display: none; }
+  .play { text-align: center; }
+  .status { font-size: 18px; margin-bottom: 2px; }
+  .note { margin-bottom: 10px; min-height: 1.2em; }
+  .board { width: min(100%, 310px); margin-inline: auto; }
+  .mark, .board.live .cell.free::after { font-size: 21vw; }
+  h2 { font-size: 24px; }
+  #graph { height: 300px; }
+  .inspect { min-height: 0; padding: 8px 12px; }
+  .panel { padding: 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mark { animation: none; }
+  .toggle .sw::after { transition: none; }
+}
+</style>
+</head>
+<body>
+<main class="app">
+  <div class="left">
+    <header class="head">
+      <h1>Minimax <span class="l2">Game Graph</span></h1>
+      <p class="lede">Play tic-tac-toe against the computer. Every position the game can reach is a dot on the graph, and you can watch the search light them up when the computer thinks.</p>
+    </header>
+
+    <section class="play">
+      <p class="status" id="status" aria-live="polite"></p>
+      <p class="note" id="note"></p>
+      <div class="board" id="board"></div>
+    </section>
+
+    <section class="controls controls-sec" aria-label="Game controls">
+      <button class="btn" type="button" id="newX">New game as X</button>
+      <button class="btn" type="button" id="newO">New game as O</button>
+      <button class="toggle" type="button" id="toggleVals" aria-pressed="false"><span class="sw"></span>Show values of my moves</button>
+      <p class="controls-note">With the switch on, every free cell shows what that move is worth if both sides play perfectly from then on.</p>
+    </section>
+
+    <section class="panel stats" aria-labelledby="statsTitle">
+      <p class="label" id="statsTitle">Last search</p>
+      <p class="empty" id="statsEmpty">The computer has not searched yet. Make your move, or start a game as O and it opens.</p>
+      <dl id="statsList" hidden>
+        <dt>Positions finished</dt><dd id="stProgress">0</dd>
+        <dt>Tree nodes in plain minimax</dt><dd id="stTree">0</dd>
+        <dt>Distinct boards searched</dt><dd id="stBoards">0</dd>
+        <dt>Dots on the graph</dt><dd id="stDots">0</dd>
+        <dt>Best score</dt><dd id="stBest">0</dd>
+        <dt>Move chosen</dt><dd id="stMove">-</dd>
+        <dd class="verdict" id="stVerdict"></dd>
+      </dl>
+    </section>
+  </div>
+
+  <div class="right">
+    <section class="graphbox" aria-labelledby="gtitle">
+      <div class="ghead">
+        <h2 id="gtitle">Game graph</h2>
+        <div class="zoom" role="group" aria-label="Graph zoom">
+          <span class="label">Zoom</span>
+          <button class="zbtn" type="button" data-z="1" aria-pressed="true">1x</button>
+          <button class="zbtn" type="button" data-z="2" aria-pressed="false">2x</button>
+          <button class="zbtn" type="button" data-z="3" aria-pressed="false">3x</button>
+        </div>
+      </div>
+      <div class="gscroll" id="gscroll">
+        <canvas id="graph" role="img" aria-label="Game graph of tic-tac-toe. Each dot is a board position, each line is a move, and dots are coloured by the result with perfect play."></canvas>
+      </div>
+      <div class="inspect" id="inspect" aria-live="polite"></div>
+      <ul class="legend" aria-label="Legend">
+        <li><i style="background: var(--x)"></i>X wins</li>
+        <li><i style="background: var(--draw)"></i>Draw</li>
+        <li><i style="background: var(--o)"></i>O wins</li>
+        <li><i style="background: var(--faint)"></i>Not searched</li>
+        <li><i class="bar" style="background: var(--go)"></i>Computer's choice</li>
+        <li><i class="bar" style="background: #fff"></i>Game so far</li>
+      </ul>
+    </section>
+
+    <section class="explain" aria-labelledby="exTitle">
+      <h2 id="exTitle">How to read the graph</h2>
+      <dl>
+        <div class="item">
+          <dt>Dots and lines</dt>
+          <dd>Each dot is one board position and each line is a move. Rotations and mirror images count as the same position, which shrinks the 5,478 reachable boards to 765 dots. The top dot is the empty board and the bottom rows are finished games.</dd>
+        </div>
+        <div class="item">
+          <dt><i style="background: var(--draw)"></i>Colour of a dot</dt>
+          <dd>The result from that position if both players play perfectly: blue means X wins, grey a draw, red O wins. The empty board is grey because perfect play always ends in a draw.</dd>
+        </div>
+        <div class="item">
+          <dt><i style="background: var(--faint)"></i>Faint dots</dt>
+          <dd>Positions the current search has not reached. Before each computer move every dot is faint, and only the dots below the current position can light up.</dd>
+        </div>
+        <div class="item">
+          <dt>The search wave</dt>
+          <dd>Minimax plays every continuation out to the end, then passes each result back up to the position before it. Dots light up in the order minimax finishes them: finished games first, then their parents, until it reaches the current position.</dd>
+        </div>
+        <div class="item">
+          <dt><i class="bar" style="background: var(--go)"></i>Scores on the lines</dt>
+          <dd>The lines leaving the ring are the computer's options, labelled with its score. A win scores 10 minus the number of moves it takes, so faster wins score higher. A loss scores the moves minus 10, and a draw scores 0. The thick green line is the move it plays, picked at random among equal scores.</dd>
+        </div>
+        <div class="item">
+          <dt><i class="bar" style="background: #fff"></i>White line and ring</dt>
+          <dd>The white line traces the game so far and the ring marks the current position. Hover or tap any dot to see its board and what perfect play gives from there.</dd>
+        </div>
+      </dl>
+    </section>
+  </div>
+</main>
+
+<script>
+(function () {
+/*LOGIC*/
+  var LINES = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+  var ROT = [6,3,0,7,4,1,8,5,2], FLIP = [2,1,0,5,4,3,8,7,6];
+
+  function permute(p, q) { return q.map(function (i) { return p[i]; }); }
+  var SYMS = [];
+  (function () {
+    var p = [0,1,2,3,4,5,6,7,8];
+    for (var k = 0; k < 4; k++) { SYMS.push(p, permute(p, FLIP)); p = permute(p, ROT); }
+  })();
+
+  var canonMemo = new Map();
+  function canonical(b) {
+    var c = canonMemo.get(b);
+    if (c !== undefined) return c;
+    var best = null;
+    for (var s = 0; s < SYMS.length; s++) {
+      var t = '';
+      for (var i = 0; i < 9; i++) t += b[SYMS[s][i]];
+      if (best === null || t < best) best = t;
+    }
+    canonMemo.set(b, best);
+    return best;
+  }
+
+  function winner(b) {
+    for (var k = 0; k < LINES.length; k++) {
+      var l = LINES[k];
+      if (b[l[0]] !== '.' && b[l[0]] === b[l[1]] && b[l[1]] === b[l[2]]) return { w: b[l[0]], line: l };
+    }
+    return { w: null, line: null };
+  }
+  function countEmpty(b) { return b.split('.').length - 1; }
+  function isOver(b) { return winner(b).w !== null || b.indexOf('.') === -1; }
+  function toMove(b) {
+    var x = b.split('X').length - 1, o = b.split('O').length - 1;
+    return x === o ? 'X' : 'O';
+  }
+  function children(b) {
+    var p = toMove(b), out = [];
+    for (var i = 0; i < 9; i++) if (b[i] === '.') out.push([i, b.slice(0, i) + p + b.slice(i + 1)]);
+    return out;
+  }
+
+  var valueMemo = new Map();
+  function value(b) {
+    var v = valueMemo.get(b);
+    if (v !== undefined) return v;
+    var w = winner(b).w;
+    if (w) v = w === 'X' ? 1 : -1;
+    else if (b.indexOf('.') === -1) v = 0;
+    else {
+      var vals = children(b).map(function (c) { return value(c[1]); });
+      v = toMove(b) === 'X' ? Math.max.apply(null, vals) : Math.min.apply(null, vals);
+    }
+    valueMemo.set(b, v);
+    return v;
+  }
+
+  var treeMemo = new Map();
+  function treeSize(b) {
+    var t = treeMemo.get(b);
+    if (t !== undefined) return t;
+    if (isOver(b)) t = 1;
+    else { t = 1; children(b).forEach(function (c) { t += treeSize(c[1]); }); }
+    treeMemo.set(b, t);
+    return t;
+  }
+
+  function buildGraph() {
+    var start = canonical('.........');
+    var levels = [[start]], edges = [], edgeSeen = new Set(), seen = new Set([start]);
+    for (var depth = 0; depth < 9; depth++) {
+      var nxt = [];
+      levels[depth].forEach(function (b) {
+        if (isOver(b)) return;
+        children(b).forEach(function (ch) {
+          var c = canonical(ch[1]), key = b + '|' + c;
+          if (!edgeSeen.has(key)) { edgeSeen.add(key); edges.push([b, c]); }
+          if (!seen.has(c)) { seen.add(c); nxt.push(c); }
+        });
+      });
+      if (!nxt.length) break;
+      levels.push(nxt);
+    }
+    var parents = new Map();
+    edges.forEach(function (e) {
+      if (!parents.has(e[1])) parents.set(e[1], []);
+      parents.get(e[1]).push(e[0]);
+    });
+    var pos = new Map();
+    levels.forEach(function (lvl, d) {
+      var ordered = lvl;
+      if (d > 0) {
+        var meanX = function (b) {
+          var ps = parents.get(b), s = 0;
+          ps.forEach(function (p) { s += pos.get(p)[0]; });
+          return s / ps.length;
+        };
+        ordered = lvl.slice().sort(function (a, b) {
+          var da = meanX(a) - meanX(b);
+          return da !== 0 ? da : value(a) - value(b);
+        });
+      }
+      ordered.forEach(function (b, k) { pos.set(b, [(k + 0.5) / ordered.length, d]); });
+    });
+    return { levels: levels, edges: edges, pos: pos };
+  }
+
+  /* Minimax with the game's scores (+10-d win, d-10 loss, 0 draw). Positions are
+     recorded in the order they are finished, which is the order the graph lights up. */
+  function chooseMove(root, cpu, human, rnd) {
+    var rootDepth = 9 - countEmpty(root);
+    var order = [], seen = new Set(), memo = new Map();
+    function mm(b) {
+      if (memo.has(b)) return memo.get(b);
+      var d = 9 - countEmpty(b) - rootDepth, w = winner(b).w, s;
+      if (w === cpu) s = 10 - d;
+      else if (w === human) s = d - 10;
+      else if (b.indexOf('.') === -1) s = 0;
+      else {
+        var vals = children(b).map(function (c) { return mm(c[1]); });
+        s = toMove(b) === cpu ? Math.max.apply(null, vals) : Math.min.apply(null, vals);
+      }
+      memo.set(b, s);
+      var c = canonical(b);
+      if (!seen.has(c)) { seen.add(c); order.push(c); }
+      return s;
+    }
+    var options = children(root).map(function (c) { return { cell: c[0], board: c[1], score: mm(c[1]) }; });
+    var best = Math.max.apply(null, options.map(function (o) { return o.score; }));
+    var ties = options.filter(function (o) { return o.score === best; });
+    var choice = ties[Math.floor((rnd || Math.random)() * ties.length)].cell;
+    var rc = canonical(root);
+    if (!seen.has(rc)) order.push(rc);
+    return { options: options, best: best, choice: choice, order: order, boards: memo.size, tree: treeSize(root) - 1 };
+  }
+/*END LOGIC*/
+
+  /* ---------- app ---------- */
+  var $ = function (id) { return document.getElementById(id); };
+  var G = buildGraph();
+  var nodes = [].concat.apply([], G.levels);
+  var index = new Map();
+  nodes.forEach(function (b, k) { index.set(b, k); });
+  var MAXD = G.levels.length - 1;
+  var WIDEST = Math.max.apply(null, G.levels.map(function (l) { return l.length; }));
+  var COL = { 1: '#4D8DFF', 0: '#8D97A6', '-1': '#FF4D6A' };
+  var GO = '#3DDC84';
+  var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  var S = {
+    human: 'X', cpu: 'O', board: '.........', history: [], busy: false, showValues: false,
+    lit: new Array(nodes.length).fill(0), recent: [], options: [], hover: -1, note: '', zoom: 1
+  };
+
+  $('gtitle').textContent = 'Game graph: ' + nodes.length + ' positions, ' + G.edges.length + ' moves';
+
+  /* board */
+  var boardEl = $('board');
+  for (var i = 0; i < 9; i++) {
+    var cb = document.createElement('button');
+    cb.type = 'button';
+    cb.className = 'cell free';
+    cb.addEventListener('click', (function (idx) { return function () { onCell(idx); }; })(i));
+    boardEl.appendChild(cb);
+  }
+
+  function renderBoard() {
+    var over = isOver(S.board);
+    var canPlay = !S.busy && !over && toMove(S.board) === S.human;
+    boardEl.classList.toggle('live', canPlay);
+    boardEl.dataset.ghostClass = S.human;
+    var wl = winner(S.board).line;
+    var hints = {};
+    if (S.showValues && canPlay) {
+      var sign = S.human === 'X' ? 1 : -1;
+      children(S.board).forEach(function (c) {
+        var v = sign * value(c[1]);
+        hints[c[0]] = v === 1 ? ['win', 'win'] : v === 0 ? ['draw', 'draw'] : ['lose', 'lose'];
+      });
+    }
+    for (var i = 0; i < 9; i++) {
+      var c = boardEl.children[i], ch = S.board[i], free = ch === '.';
+      var h = hints[i] || null;
+      var key = ch + '|' + (h ? h[0] : '');
+      if (c.dataset.v !== key) {
+        c.dataset.v = key;
+        c.textContent = '';
+        if (free) {
+          var n = document.createElement('span'); n.className = 'n'; n.textContent = String(i + 1); c.appendChild(n);
+          if (h) { var hs = document.createElement('span'); hs.className = 'hint ' + h[1]; hs.textContent = h[0]; c.appendChild(hs); }
+        } else {
+          var m = document.createElement('span'); m.className = 'mark ' + ch; m.textContent = ch; c.appendChild(m);
+        }
+      }
+      c.dataset.ghost = S.human;
+      c.classList.toggle('free', free);
+      c.classList.toggle('win', !!wl && wl.indexOf(i) !== -1);
+      c.disabled = !free || !canPlay;
+      c.setAttribute('aria-label', 'Cell ' + (i + 1) + (free ? ', empty' : ', ' + ch) + (h ? ', ' + h[0] + ' with perfect play' : ''));
+    }
+    var w = winner(S.board).w;
+    var status;
+    if (over) status = w === S.human ? 'You win!' : w ? 'The computer wins.' : 'Draw.';
+    else if (S.busy) status = 'Computer is thinking…';
+    else status = 'Your move (' + S.human + ')';
+    $('status').textContent = status;
+    $('note').textContent = S.note;
+    $('newX').disabled = S.busy;
+    $('newO').disabled = S.busy;
+  }
+
+  /* graph canvas */
+  var canvas = $('graph'), ctx = canvas.getContext('2d');
+  var PAD = { l: 54, r: 14, t: 22, b: 16 };
+  function gx(xf, W) { return PAD.l + xf * (W - PAD.l - PAD.r); }
+  function gy(d, H) { return PAD.t + (d / MAXD) * (H - PAD.t - PAD.b); }
+  function pt(b, W, H) { var p = G.pos.get(b); return [gx(p[0], W), gy(p[1], H)]; }
+
+  function drawGraph() {
+    var dpr = window.devicePixelRatio || 1;
+    var W = canvas.clientWidth, H = canvas.clientHeight;
+    if (!W || !H) return;
+    if (canvas.width !== Math.round(W * dpr) || canvas.height !== Math.round(H * dpr)) {
+      canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+
+    var narrow = $('gscroll').clientWidth < 560;
+    PAD.l = narrow ? 26 : 54;
+    var spacing = (W - PAD.l - PAD.r) / WIDEST;
+    var rLit = Math.max(1.1, Math.min(2.6, spacing * 0.62)), rFaint = rLit * 0.7;
+
+    ctx.font = (narrow ? '10px' : '11px') + ' "IBM Plex Mono", ui-monospace, monospace';
+    ctx.textBaseline = 'middle';
+    for (var d = 0; d <= MAXD; d++) {
+      var y = gy(d, H);
+      ctx.strokeStyle = 'rgba(255,255,255,0.035)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(PAD.l - 6, y); ctx.lineTo(W - PAD.r, y); ctx.stroke();
+      ctx.fillStyle = '#8592A1'; ctx.textAlign = 'left';
+      ctx.fillText(narrow ? String(d) : 'move ' + d, narrow ? 10 : 8, y);
+    }
+    if (narrow) { ctx.fillText('move', 4, 7); }
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.10)'; ctx.lineWidth = 0.6;
+    ctx.beginPath();
+    G.edges.forEach(function (e) {
+      var a = pt(e[0], W, H), c = pt(e[1], W, H);
+      ctx.moveTo(a[0], a[1]); ctx.lineTo(c[0], c[1]);
+    });
+    ctx.stroke();
+
+    var k, p;
+    for (k = 0; k < nodes.length; k++) {
+      p = pt(nodes[k], W, H);
+      ctx.fillStyle = S.lit[k] ? COL[value(nodes[k])] : 'rgba(255,255,255,0.16)';
+      ctx.beginPath(); ctx.arc(p[0], p[1], S.lit[k] ? rLit : rFaint, 0, 6.2832); ctx.fill();
+    }
+    S.recent.forEach(function (k2) {
+      var q = pt(nodes[k2], W, H);
+      ctx.globalAlpha = 0.35; ctx.fillStyle = COL[value(nodes[k2])];
+      ctx.beginPath(); ctx.arc(q[0], q[1], rLit * 2.4, 0, 6.2832); ctx.fill();
+      ctx.globalAlpha = 1;
+    });
+
+    if (S.options.length) {
+      var rootPt = pt(S.options.root, W, H);
+      var ordered = S.options.slice().sort(function (a, b) { return (a.chosen ? 1 : 0) - (b.chosen ? 1 : 0); });
+      ordered.forEach(function (o) {
+        var c = pt(o.to, W, H);
+        ctx.strokeStyle = o.chosen ? GO : COL[value(o.to)];
+        ctx.lineWidth = o.chosen ? 3.5 : 1.4;
+        ctx.globalAlpha = o.chosen ? 1 : 0.9;
+        ctx.beginPath(); ctx.moveTo(rootPt[0], rootPt[1]); ctx.lineTo(c[0], c[1]); ctx.stroke();
+        ctx.globalAlpha = 1;
+      });
+      ctx.font = '600 11px "IBM Plex Mono", ui-monospace, monospace';
+      ctx.textAlign = 'center';
+      S.options.forEach(function (o) {
+        var c = pt(o.to, W, H);
+        var txt = o.score === 0 ? '0' : (o.score > 0 ? '+' : '') + o.score;
+        var tw = ctx.measureText(txt).width + 8;
+        ctx.fillStyle = 'rgba(0,0,0,0.85)';
+        ctx.fillRect(c[0] - tw / 2, c[1] - 24, tw, 15);
+        ctx.fillStyle = o.chosen ? GO : '#E9EEF5';
+        ctx.fillText(txt, c[0], c[1] - 16);
+      });
+    }
+
+    if (S.history.length) {
+      ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 2.2; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      ctx.beginPath();
+      S.history.forEach(function (b, i) {
+        var q = pt(canonical(b), W, H);
+        if (i === 0) ctx.moveTo(q[0], q[1]); else ctx.lineTo(q[0], q[1]);
+      });
+      ctx.stroke();
+      var cur = pt(canonical(S.board), W, H);
+      ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(cur[0], cur[1], narrow ? 7 : 8, 0, 6.2832); ctx.stroke();
+    }
+
+    if (S.hover >= 0) {
+      var hp = pt(nodes[S.hover], W, H);
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.arc(hp[0], hp[1], 6.5, 0, 6.2832); ctx.stroke();
+    }
+  }
+
+  /* inspector */
+  function renderInspect(k) {
+    var el = $('inspect');
+    el.textContent = '';
+    if (k < 0) {
+      var t0 = document.createElement('div'); t0.className = 'inspect-text';
+      t0.innerHTML = '<span>Hover or tap a dot to inspect that position.</span><span class="muted">Shown in one orientation: rotations and mirror images are the same dot.</span>';
+      el.appendChild(t0);
+      return;
+    }
+    var b = nodes[k], v = value(b), w = winner(b).w;
+    var mini = document.createElement('div'); mini.className = 'mini';
+    for (var i = 0; i < 9; i++) {
+      var s = document.createElement('span');
+      if (b[i] !== '.') { s.className = b[i]; s.textContent = b[i]; }
+      mini.appendChild(s);
+    }
+    var txt = document.createElement('div'); txt.className = 'inspect-text';
+    var l1 = document.createElement('span');
+    l1.textContent = w ? 'Game over: ' + w + ' has won.' : b.indexOf('.') === -1 ? 'Game over: draw.' : toMove(b) + ' to move, move ' + (9 - countEmpty(b)) + '.';
+    var l2 = document.createElement('span'); l2.className = 'muted';
+    l2.textContent = 'With perfect play: ' + (v === 1 ? 'X wins' : v === -1 ? 'O wins' : 'draw');
+    l2.style.color = COL[v];
+    txt.appendChild(l1); txt.appendChild(l2);
+    el.appendChild(mini); el.appendChild(txt);
+  }
+
+  function nearest(ev) {
+    var r = canvas.getBoundingClientRect();
+    var mx = ev.clientX - r.left, my = ev.clientY - r.top;
+    var W = canvas.clientWidth, H = canvas.clientHeight, best = -1;
+    var rad = ev.pointerType === 'touch' ? 20 : 12, bd = rad * rad;
+    for (var k = 0; k < nodes.length; k++) {
+      var p = pt(nodes[k], W, H), dx = p[0] - mx, dy = p[1] - my, dd = dx * dx + dy * dy;
+      if (dd < bd) { bd = dd; best = k; }
+    }
+    return best;
+  }
+  function onPointer(ev) {
+    var k = nearest(ev);
+    if (k !== S.hover) { S.hover = k; renderInspect(k); drawGraph(); }
+  }
+  canvas.addEventListener('pointermove', onPointer);
+  canvas.addEventListener('pointerdown', onPointer);
+  canvas.addEventListener('pointerleave', function () {
+    if (S.hover !== -1) { S.hover = -1; renderInspect(-1); drawGraph(); }
+  });
+  if (window.ResizeObserver) new ResizeObserver(drawGraph).observe(canvas);
+  window.addEventListener('resize', drawGraph);
+
+  /* stats */
+  function showStats(r, progress) {
+    $('statsEmpty').hidden = true;
+    $('statsList').hidden = false;
+    $('stProgress').textContent = progress;
+    $('stTree').textContent = r.tree.toLocaleString('en-US');
+    $('stBoards').textContent = r.boards.toLocaleString('en-US');
+    $('stDots').textContent = r.order.length.toLocaleString('en-US');
+  }
+  function showResult(r) {
+    var fmt = function (s) { return s === 0 ? '0' : (s > 0 ? '+' : '') + s; };
+    $('stBest').textContent = fmt(r.best);
+    $('stMove').textContent = 'cell ' + (r.choice + 1);
+    var v = $('stVerdict');
+    v.className = 'verdict ' + (r.best > 0 ? 'win' : r.best === 0 ? 'draw' : 'lose');
+    v.textContent = r.best > 0 ? 'The computer can force a win.'
+      : r.best === 0 ? 'The best the computer can get is a draw.'
+      : 'The computer can only delay losing.';
+  }
+  function clearResult() {
+    $('stBest').textContent = '-';
+    $('stMove').textContent = '-';
+    $('stVerdict').textContent = '';
+    $('stVerdict').className = 'verdict';
+  }
+
+  /* flow */
+  function resetGraph() {
+    S.lit.fill(0); S.recent = []; S.options = [];
+    drawGraph();
+  }
+
+  function animateLight(r) {
+    return new Promise(function (resolve) {
+      var L = r.order.length, D = reduced ? 0 : 1800, t0 = performance.now(), n = 0;
+      function frame(now) {
+        var t = D ? Math.min(1, (now - t0) / D) : 1;
+        var target = Math.ceil(L * t);
+        if (target > n) {
+          S.recent = [];
+          for (var k = n; k < target; k++) {
+            var idx = index.get(r.order[k]);
+            S.lit[idx] = 1; S.recent.push(idx);
+          }
+          n = target;
+          $('stProgress').textContent = n + ' / ' + L;
+          drawGraph();
+        }
+        if (t < 1) requestAnimationFrame(frame);
+        else { S.recent = []; drawGraph(); resolve(); }
+      }
+      requestAnimationFrame(frame);
+    });
+  }
+
+  function pause(ms) { return new Promise(function (res) { setTimeout(res, reduced ? 0 : ms); }); }
+
+  function centerOnCurrent() {
+    var gs = $('gscroll');
+    if (canvas.clientWidth <= gs.clientWidth + 1) return;
+    var p = pt(canonical(S.board), canvas.clientWidth, canvas.clientHeight);
+    gs.scrollLeft = Math.max(0, p[0] - gs.clientWidth / 2);
+  }
+  function bring(el) {
+    if (window.innerWidth >= 960) return;
+    var r = el.getBoundingClientRect();
+    if (r.bottom > window.innerHeight || r.top < 0) el.scrollIntoView({ block: 'nearest', behavior: reduced ? 'auto' : 'smooth' });
+  }
+
+  var gameId = 0;
+  async function computerMove() {
+    var id = gameId;
+    S.busy = true;
+    renderBoard();
+    resetGraph();
+    centerOnCurrent();
+    bring($('gscroll'));
+    clearResult();
+    var root = S.board;
+    var r = chooseMove(root, S.cpu, S.human);
+    showStats(r, '0 / ' + r.order.length);
+    await animateLight(r);
+    if (id !== gameId) return;
+    var rc = canonical(root);
+    S.options = r.options.map(function (o) {
+      return { to: canonical(o.board), score: o.score, chosen: o.cell === r.choice };
+    });
+    S.options.root = rc;
+    drawGraph();
+    showResult(r);
+    await pause(700);
+    if (id !== gameId) return;
+    play(r.choice, S.cpu);
+    S.note = 'The computer plays cell ' + (r.choice + 1) + '.';
+    S.busy = false;
+    renderBoard();
+    drawGraph();
+    centerOnCurrent();
+    bring(boardEl);
+  }
+
+  function play(i, sign) {
+    S.board = S.board.slice(0, i) + sign + S.board.slice(i + 1);
+    S.history.push(S.board);
+    renderBoard();
+    drawGraph();
+    centerOnCurrent();
+  }
+
+  function onCell(i) {
+    if (S.busy || isOver(S.board) || toMove(S.board) !== S.human || S.board[i] !== '.') return;
+    play(i, S.human);
+    S.note = 'You play cell ' + (i + 1) + '.';
+    renderBoard();
+    if (!isOver(S.board)) computerMove();
+  }
+
+  function newGame(human) {
+    if (S.busy) return;
+    gameId++;
+    S.human = human; S.cpu = human === 'X' ? 'O' : 'X';
+    S.board = '.........'; S.history = [S.board];
+    S.note = human === 'X' ? 'Click a cell to play.' : 'The computer opens. Watch the graph.';
+    $('statsEmpty').hidden = false; $('statsList').hidden = true;
+    resetGraph();
+    renderBoard();
+    if (S.cpu === 'X') computerMove();
+  }
+
+  $('newX').addEventListener('click', function () { newGame('X'); });
+  $('newO').addEventListener('click', function () { newGame('O'); });
+  $('toggleVals').addEventListener('click', function () {
+    S.showValues = !S.showValues;
+    this.setAttribute('aria-pressed', String(S.showValues));
+    renderBoard();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (/^[1-9]$/.test(e.key)) onCell(Number(e.key) - 1);
+  });
+
+  document.querySelectorAll('.zbtn').forEach(function (b) {
+    b.addEventListener('click', function () {
+      S.zoom = Number(b.dataset.z);
+      document.querySelectorAll('.zbtn').forEach(function (o) { o.setAttribute('aria-pressed', String(o === b)); });
+      canvas.style.width = (S.zoom * 100) + '%';
+      drawGraph();
+      centerOnCurrent();
+    });
+  });
+
+  renderInspect(-1);
+  newGame('X');
+})();
+</script>
+
+</body>
+</html>
