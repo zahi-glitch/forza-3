@@ -1,6 +1,7 @@
 # Tic-Tac-Toe: from two players to minimax
 
-Each step builds on the previous one. Run them in order.
+Each step builds on the previous one. Run them in order. 
+
 
 | Step | File | What is new |
 |------|------|-------------|
@@ -9,6 +10,8 @@ Each step builds on the previous one. Run them in order.
 | 3 | `forza_3_rand2.py` | Cells numbered 1-9, player name and sign, play again, input timeout. The computer wins or blocks when it can, otherwise random |
 | 4 | `tic_tac_toe_minimax_viz.py` | The computer now plays **minimax** (never loses). Matplotlib window shows the search on the game graph |
 | 5 | `website/index.html` | The same idea in the browser: no install, click to play |
+
+When I realized that minimax was a good strategy (it never loses), I worked with Claude (Anthropic) to build the website (step 5).
 
 ```bash
 python3 forza_3.py                    # 1. two players
